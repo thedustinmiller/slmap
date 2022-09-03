@@ -81,7 +81,12 @@ fn create_link(link: &Link) {
 }
 
 fn destroy_link(link: &Link) {
-    fs::remove_file(str_to_abs(&link.to).as_path()).expect("Failed to delete symlink");
+    match fs::remove_file(str_to_abs(&link.to).as_path()){
+        Ok(_) => {},
+        Err(e) => {
+            println!("Failed to destroy link: {}", e);
+        }
+    }
 }
 
 fn check_link(link: &Link) -> LinkStatus {
@@ -169,32 +174,20 @@ fn purge_links(lock_file: &mut File) {
     for (name, link) in &lock {
         destroy_link(link);
     }
+    lock_file.set_len(0).expect("erase failed");
+    lock_file.rewind().expect("rewind fail");
+    lock_file.sync_all().expect("sync fail");
 }
 
 fn main() {
     let matches = Command::new("slmap")
         .about("symlink manager")
         .version("0.1.0")
-        .subcommand_required(true)
         .arg_required_else_help(true)
         .author("Dustin Miller")
         // Query subcommand
         //
         // Only a few of its arguments are implemented below.
-        .subcommand(
-            Command::new("read")
-                .args_conflicts_with_subcommands(true)
-                .short_flag('r')
-                .long_flag("read")
-                .about("Read map file and create links."),
-        )
-        .subcommand(
-            Command::new("purge")
-                .args_conflicts_with_subcommands(true)
-                .short_flag('p')
-                .long_flag("purge")
-                .about("delete all existing links"),
-        )
         .arg(
             Arg::new("map_file")
                 .short('m')
@@ -211,11 +204,35 @@ fn main() {
                 .default_value("lock.toml")
                 .takes_value(true),
         )
+        .arg(
+            Arg::new("command")
+                .required(true)
+                .index(1)
+                .help("which command to run"),
+        )
+        // .subcommand(
+        //     Command::new("read")
+        //         .args_conflicts_with_subcommands(true)
+        //         .short_flag('r')
+        //         .long_flag("read")
+        //         .about("Read map file and create links."),
+        // )
+        // .subcommand(
+        //     Command::new("purge")
+        //         .args_conflicts_with_subcommands(true)
+        //         .short_flag('p')
+        //         .long_flag("purge")
+        //         .about("delete all existing links"),
+        // )
+
         .get_matches();
+
+    let map_file_string = matches.value_of("map_file").unwrap();
+    let lock_file_string = matches.value_of("lock_file").unwrap();
 
     let mut map_file = OpenOptions::new()
         .read(true)
-        .open("map.toml")
+        .open(map_file_string)
         .expect("Unable to open file");
 
     let mut lock_file = OpenOptions::new()
@@ -223,9 +240,20 @@ fn main() {
         .create(true)
         .write(true)
         .append(true)
-        .open("lock.toml")
+        .open(lock_file_string)
         .expect("unable to open lock file");
 
-    read_map(&mut map_file, &mut lock_file);
-    purge_links(&mut lock_file);
+    match matches.value_of("command").unwrap() {
+        "read" => {
+            read_map(&mut map_file, &mut lock_file);
+        }
+        "purge" => {
+            purge_links(&mut lock_file);
+        }
+        _ => {
+            panic!("Invalid command");
+        }
+    }
+
+
 }
