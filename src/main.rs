@@ -1,11 +1,17 @@
 #![feature(absolute_path)]
 
+use clap::{self, Arg, ArgAction, Command, Parser};
 use serde::{Deserialize, Serialize};
-use std::{fs, collections::HashMap, path::{self, Path, PathBuf}};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::{self, File, OpenOptions},
+    io::{self, Read, Seek, Write},
+    path::{self, Path, PathBuf},
+};
 use whoami;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Link{
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Link {
     // [filename]
     // from = path/to/file
     // to = path/to/file
@@ -13,7 +19,8 @@ struct Link{
     // perms = 0644 (default: 0644)
     // owner = user (default: current user)
     // group = group (default: current group)
-
+    #[serde(default = "default_filename")]
+    filename: String,
     from: String,
     to: String,
     #[serde(default = "default_type")]
@@ -21,58 +28,104 @@ struct Link{
     #[serde(default = "default_owner")]
     owner: String,
     #[serde(default = "default_group")]
-    group: String
+    group: String,
+    #[serde(default = "default_destroy")]
+    destroy: bool,
 }
 
+#[derive(Hash, Eq, PartialEq)]
+enum LinkStatus {
+    Create,
+    Update,
+    Destroy,
+    Nothing,
+}
+
+fn default_filename() -> String {
+    "".to_string()
+}
 fn default_type() -> String {
     "soft".to_string()
 }
-
 fn default_owner() -> String {
     whoami::username()
 }
-
 fn default_group() -> String {
     whoami::username()
 }
+fn default_destroy() -> bool {
+    false
+}
 
-fn str_to_abs(path: &String) -> PathBuf{
+fn str_to_abs(path: &String) -> PathBuf {
     path::absolute(path.as_str()).unwrap().to_path_buf()
 }
 
 fn create_link(link: &Link) {
-    println!("{:#?}", str_to_abs(&link.to).as_path().parent().unwrap());
-    fs::create_dir_all(str_to_abs(&link.to).as_path().parent().unwrap()).expect("Failed to create directory");
+    fs::create_dir_all(str_to_abs(&link.to).as_path().parent().unwrap())
+        .expect("Failed to create directory");
 
-    match link.link_type.as_str(){
+    match link.link_type.as_str() {
         "soft" => {
-            std::os::unix::fs::symlink(str_to_abs(&link.from), str_to_abs(&link.to)).expect("Failed to create symlink");
-        },
+            std::os::unix::fs::symlink(str_to_abs(&link.from), str_to_abs(&link.to))
+                .expect("Failed to create symlink");
+        }
         "hard" => {
             //std::os::unix::fs::hard_link(link.from, link.to);
             panic!("Hard links are not supported yet");
-        },
+        }
         _ => {
             panic!("Invalid link type");
         }
     }
 }
 
+fn destroy_link(link: &Link) {
+    fs::remove_file(str_to_abs(&link.to).as_path()).expect("Failed to delete symlink");
+}
 
-fn main() {
+fn check_link(link: &Link) -> LinkStatus {
+    let path = str_to_abs(&link.to);
 
+    if path.exists() {
+        if path.is_symlink() {
+            let link_path = fs::read_link(path).unwrap();
+            if link_path.to_str().expect("msg") == str_to_abs(&link.from).to_str().expect("msg") {
+                // return LinkStatus::Nothing;
+                return LinkStatus::Update;
+            } else {
+                return LinkStatus::Update;
+            }
+        } else {
+            panic!("not a symlink?");
+        }
+    } else {
+        return LinkStatus::Create;
+    }
+}
 
-    let link = Link {
-        from: "/tmp/test".to_string(),
-        to: "/tmp/test".to_string(),
-        link_type: "soft".to_string(),
-        owner: "root".to_string(),
-        group: "root".to_string()
-    };
+fn update_lock(name: &String, link: &Link, file: &mut File) {
+    let mut s = String::new();
+    file.rewind().expect("rewind fail");
+    file.read_to_string(&mut s).expect("read fail");
 
-    let toml = toml::to_string(&link).unwrap();
-    println!("{:#?}", toml);
+    let mut table: HashMap<String, Link> = toml::from_str(&s).unwrap();
+    table.remove(name);
+    table.insert(name.clone(), link.clone());
 
+    file.set_len(0).expect("erase failed");
+    file.rewind().expect("rewind fail");
+
+    let s = toml::to_string(&table).unwrap().as_bytes().to_owned();
+    file.write_all(&s).expect("write fail");
+    file.sync_all().expect("sync fail");
+}
+
+fn read_map(map_file: &mut File, lock_file: &mut File) {
+    let mut file_string = String::new();
+    map_file
+        .read_to_string(&mut file_string)
+        .expect("read fail");
 
     let file_string = fs::read_to_string("map.toml").expect("Unable to read file");
 
@@ -81,9 +134,98 @@ fn main() {
     for (name, link) in &map {
         println!("{:#?}", name);
         println!("{:#?}", link);
-        create_link(&link);
+
+        match check_link(link) {
+            LinkStatus::Create => {
+                println!("Create");
+                create_link(link);
+                update_lock(name, link, lock_file);
+            }
+            LinkStatus::Update => {
+                println!("update");
+                destroy_link(link);
+                create_link(link);
+                update_lock(name, link, lock_file)
+            }
+            LinkStatus::Destroy => {
+                println!("destroy");
+                destroy_link(link);
+            }
+            LinkStatus::Nothing => {
+                println!("nothing");
+            }
+        }
     }
+}
 
-    println!("{:#?}", map);
+fn purge_links(lock_file: &mut File) {
+    let mut file_string = String::new();
+    lock_file
+        .read_to_string(&mut file_string)
+        .expect("read fail");
 
+    let lock: HashMap<String, Link> = toml::from_str(&file_string).unwrap();
+
+    for (name, link) in &lock {
+        destroy_link(link);
+    }
+}
+
+fn main() {
+    let matches = Command::new("slmap")
+        .about("symlink manager")
+        .version("0.1.0")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .author("Dustin Miller")
+        // Query subcommand
+        //
+        // Only a few of its arguments are implemented below.
+        .subcommand(
+            Command::new("read")
+                .args_conflicts_with_subcommands(true)
+                .short_flag('r')
+                .long_flag("read")
+                .about("Read map file and create links."),
+        )
+        .subcommand(
+            Command::new("purge")
+                .args_conflicts_with_subcommands(true)
+                .short_flag('p')
+                .long_flag("purge")
+                .about("delete all existing links"),
+        )
+        .arg(
+            Arg::new("map_file")
+                .short('m')
+                .long("map")
+                .help("Map file location")
+                .default_value("map.toml")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::new("lock_file")
+                .short('l')
+                .long("lock")
+                .help("Lock file location")
+                .default_value("lock.toml")
+                .takes_value(true),
+        )
+        .get_matches();
+
+    let mut map_file = OpenOptions::new()
+        .read(true)
+        .open("map.toml")
+        .expect("Unable to open file");
+
+    let mut lock_file = OpenOptions::new()
+        .read(true)
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("lock.toml")
+        .expect("unable to open lock file");
+
+    read_map(&mut map_file, &mut lock_file);
+    purge_links(&mut lock_file);
 }
