@@ -1,0 +1,15 @@
+# [filename]
+# from = path/to/file
+# to = path/to/file
+# type = soft/hard (default: soft)
+# perms = 0644 (default: 0644)
+# owner = user (default: current user)
+# group = group (default: current group)
+
+[zshrc]
+from = 'config/zshrc'
+to = 'test/.zshrc'
+
+[vimrc]
+from = 'config/vimrc'
+to = 'test/.vimrc'
