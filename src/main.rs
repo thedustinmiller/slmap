@@ -1,12 +1,12 @@
 #![feature(absolute_path)]
 
-use clap::{self, Arg, ArgAction, Command, Parser};
+use clap::{self, Arg, Command};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     fs::{self, File, OpenOptions},
-    io::{self, Read, Seek, Write},
-    path::{self, Path, PathBuf},
+    io::{Read, Seek, Write},
+    path::{self, PathBuf},
 };
 use whoami;
 
@@ -31,6 +31,7 @@ struct Link {
     destroy: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Hash, Eq, PartialEq)]
 enum LinkStatus {
     Create,
@@ -39,9 +40,6 @@ enum LinkStatus {
     Nothing,
 }
 
-fn default_filename() -> String {
-    "".to_string()
-}
 fn default_type() -> String {
     "soft".to_string()
 }
@@ -169,7 +167,7 @@ fn purge_links(lock_file: &mut File) {
 
     let lock: HashMap<String, Link> = toml::from_str(&file_string).unwrap();
 
-    for (name, link) in &lock {
+    for (_name, link) in &lock {
         destroy_link(link);
     }
     lock_file.set_len(0).expect("erase failed");
