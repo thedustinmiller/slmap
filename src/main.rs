@@ -79,8 +79,8 @@ fn create_link(link: &Link) {
 }
 
 fn destroy_link(link: &Link) {
-    match fs::remove_file(str_to_abs(&link.to).as_path()){
-        Ok(_) => {},
+    match fs::remove_file(str_to_abs(&link.to).as_path()) {
+        Ok(_) => {}
         Err(e) => {
             println!("Failed to destroy link: {}", e);
         }
@@ -204,22 +204,6 @@ fn main() {
                 .default_value("lock.toml")
                 .takes_value(true),
         )
-
-        // .subcommand(
-        //     Command::new("read")
-        //         .args_conflicts_with_subcommands(true)
-        //         .short_flag('r')
-        //         .long_flag("read")
-        //         .about("Read map file and create links."),
-        // )
-        // .subcommand(
-        //     Command::new("purge")
-        //         .args_conflicts_with_subcommands(true)
-        //         .short_flag('p')
-        //         .long_flag("purge")
-        //         .about("delete all existing links"),
-        // )
-
         .get_matches();
 
     let map_file_string = matches.value_of("map_file").unwrap();
@@ -249,6 +233,4 @@ fn main() {
             panic!("Invalid command");
         }
     }
-
-
 }

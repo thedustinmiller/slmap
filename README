@@ -1,0 +1,29 @@
+Simple utility to manage a list of symlinks so you can centralize your config files in a repo and symlink to them.
+
+usage:  
+slmap <command> --map mapfile.toml --lock lockfile.toml  
+commands are read and clean.  
+read creates or updates all the symlinks in map.toml  
+clean deletes all the symlinks in lock.toml  
+  
+file format:  
+
+[filename]  
+from = path/to/file  
+to = path/to/file  
+type = soft/hard (default: soft)  
+perms = 0644 (default: 0644)  
+owner = user (default: current user)  
+group = group (default: current group)  
+  
+[zshrc]  
+from = 'config/zshrc'  
+to = 'test/.zshrc'  
+  
+[vimrc]  
+from = 'config/vimrc'  
+to = 'test/.vimrc'  
+  
+[folder]  
+from = 'config/folder'  
+to = 'test/folder'  
