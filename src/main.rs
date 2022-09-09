@@ -19,8 +19,6 @@ struct Link {
     // perms = 0644 (default: 0644)
     // owner = user (default: current user)
     // group = group (default: current group)
-    #[serde(default = "default_filename")]
-    filename: String,
     from: String,
     to: String,
     #[serde(default = "default_type")]
@@ -185,9 +183,11 @@ fn main() {
         .version("0.1.0")
         .arg_required_else_help(true)
         .author("Dustin Miller")
-        // Query subcommand
-        //
-        // Only a few of its arguments are implemented below.
+        .arg(
+            Arg::new("command")
+                .help("which command to run")
+                .value_parser(["read", "clean"]),
+        )
         .arg(
             Arg::new("map_file")
                 .short('m')
@@ -204,12 +204,7 @@ fn main() {
                 .default_value("lock.toml")
                 .takes_value(true),
         )
-        .arg(
-            Arg::new("command")
-                .required(true)
-                .index(1)
-                .help("which command to run"),
-        )
+
         // .subcommand(
         //     Command::new("read")
         //         .args_conflicts_with_subcommands(true)
@@ -247,7 +242,7 @@ fn main() {
         "read" => {
             read_map(&mut map_file, &mut lock_file);
         }
-        "purge" => {
+        "clean" => {
             purge_links(&mut lock_file);
         }
         _ => {

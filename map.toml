@@ -15,3 +15,8 @@ to = 'test/.zshrc'
 filename = '.vimrc'
 from = 'config/vimrc'
 to = 'test/.vimrc'
+
+[folder]
+filename = 'folder'
+from = 'config/folder'
+to = 'test/folder'
