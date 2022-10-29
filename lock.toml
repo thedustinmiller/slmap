@@ -1,0 +1,31 @@
+[folder]
+from = "config/folder"
+to = "test/folder"
+link_type = "soft"
+owner = "dustin"
+group = "dustin"
+destroy = false
+
+[vimrc]
+from = "config/.vimrc"
+to = "test/.vimrc"
+link_type = "soft"
+owner = "dustin"
+group = "dustin"
+destroy = false
+
+[ssh]
+from = "config/.ssh"
+to = "test/.ssh"
+link_type = "soft"
+owner = "dustin"
+group = "dustin"
+destroy = false
+
+[zshrc]
+from = "config/.zshrc"
+to = "test/.zshrc"
+link_type = "soft"
+owner = "dustin"
+group = "dustin"
+destroy = false

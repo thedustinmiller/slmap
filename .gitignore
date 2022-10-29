@@ -1,3 +1,5 @@
 target
 config
 test
+lock.toml
+map.toml

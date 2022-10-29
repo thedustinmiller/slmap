@@ -7,16 +7,13 @@
 # group = group (default: current group)
 
 [zshrc]
-filename = '.zshrc'
-from = 'config/zshrc'
+from = 'config/.zshrc'
 to = 'test/.zshrc'
 
 [vimrc]
-filename = '.vimrc'
-from = 'config/vimrc'
+from = 'config/.vimrc'
 to = 'test/.vimrc'
 
-[folder]
-filename = 'folder'
-from = 'config/folder'
-to = 'test/folder'
+[ssh]
+from = 'config/.ssh'
+to = 'test/.ssh'
