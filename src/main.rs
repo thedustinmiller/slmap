@@ -76,12 +76,19 @@ fn create_link(link: &Link) {
 }
 
 fn destroy_link(link: &Link) {
-    match fs::remove_file(str_to_abs(&link.to).as_path()) {
-        Ok(_) => {}
-        Err(e) => {
-            println!("Failed to destroy link: {}", e);
+    match fs::metadata(path::absolute(&link.to).unwrap()) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                fs::remove_dir_all(str_to_abs(&link.to)).expect("Failed to remove dir");
+            } else {
+                fs::remove_file(str_to_abs(&link.to)).expect("Failed to remove file");
+            }
+        }
+        Err(_) => {
+            println!("destroy error");
         }
     }
+
 }
 
 fn check_link(link: &Link) -> LinkStatus {
@@ -97,7 +104,7 @@ fn check_link(link: &Link) -> LinkStatus {
                 return LinkStatus::Update;
             }
         } else {
-            return LinkStatus::Destroy; //is a file apparently 
+            return LinkStatus::Update; //is a file apparently 
         }
     } else {
         return LinkStatus::Create;
@@ -177,7 +184,7 @@ fn purge_links(lock_file: &mut File) {
 fn main() {
     let matches = Command::new("slmap")
         .about("symlink manager")
-        .version("0.1.1")
+        .version("0.1.2")
         .arg_required_else_help(true)
         .author("Dustin Miller")
         .arg(
