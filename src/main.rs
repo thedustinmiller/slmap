@@ -177,7 +177,7 @@ fn purge_links(lock_file: &mut File) {
 fn main() {
     let matches = Command::new("slmap")
         .about("symlink manager")
-        .version("0.1.0")
+        .version("0.1.1")
         .arg_required_else_help(true)
         .author("Dustin Miller")
         .arg(
