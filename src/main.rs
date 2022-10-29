@@ -97,7 +97,7 @@ fn check_link(link: &Link) -> LinkStatus {
                 return LinkStatus::Update;
             }
         } else {
-            panic!("not a symlink?");
+            return LinkStatus::Destroy; //is a file apparently 
         }
     } else {
         return LinkStatus::Create;
