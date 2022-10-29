@@ -8,7 +8,6 @@ use std::{
     io::{Read, Seek, Write},
     path::{self, PathBuf},
 };
-use whoami;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Link {
@@ -44,10 +43,10 @@ fn default_type() -> String {
     "soft".to_string()
 }
 fn default_owner() -> String {
-    whoami::username()
+    "".to_string()
 }
 fn default_group() -> String {
-    whoami::username()
+    "".to_string()
 }
 fn default_destroy() -> bool {
     false
