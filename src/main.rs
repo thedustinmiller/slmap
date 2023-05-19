@@ -14,41 +14,14 @@ struct Link {
     // [filename]
     // from = path/to/file
     // to = path/to/file
-    // type = soft/hard (default: soft)
-    // perms = 0644 (default: 0644)
-    // owner = user (default: current user)
-    // group = group (default: current group)
+    // root = false
     from: String,
     to: String,
-    #[serde(default = "default_type")]
-    link_type: String,
-    #[serde(default = "default_owner")]
-    owner: String,
-    #[serde(default = "default_group")]
-    group: String,
-    #[serde(default = "default_destroy")]
-    destroy: bool,
+    #[serde(default = "default_root")]
+    root: bool,
 }
 
-#[allow(dead_code)]
-#[derive(Hash, Eq, PartialEq)]
-enum LinkStatus {
-    Create,
-    Update,
-    Destroy,
-    Nothing,
-}
-
-fn default_type() -> String {
-    "soft".to_string()
-}
-fn default_owner() -> String {
-    "".to_string()
-}
-fn default_group() -> String {
-    "".to_string()
-}
-fn default_destroy() -> bool {
+fn default_root() -> bool {
     false
 }
 
@@ -75,21 +48,6 @@ fn create_link(link: &Link) {
     }
 }
 
-fn destroy_link(link: &Link) {
-    match fs::metadata(path::absolute(&link.to).unwrap()) {
-        Ok(metadata) => {
-            if metadata.is_dir() {
-                fs::remove_dir_all(str_to_abs(&link.to)).expect("Failed to remove dir");
-            } else {
-                fs::remove_file(str_to_abs(&link.to)).expect("Failed to remove file");
-            }
-        }
-        Err(_) => {
-            println!("destroy error");
-        }
-    }
-
-}
 
 fn check_link(link: &Link) -> LinkStatus {
     let path = str_to_abs(&link.to);
@@ -111,22 +69,6 @@ fn check_link(link: &Link) -> LinkStatus {
     }
 }
 
-fn update_lock(name: &String, link: &Link, file: &mut File) {
-    let mut s = String::new();
-    file.rewind().expect("rewind fail");
-    file.read_to_string(&mut s).expect("read fail");
-
-    let mut table: HashMap<String, Link> = toml::from_str(&s).unwrap();
-    table.remove(name);
-    table.insert(name.clone(), link.clone());
-
-    file.set_len(0).expect("erase failed");
-    file.rewind().expect("rewind fail");
-
-    let s = toml::to_string(&table).unwrap().as_bytes().to_owned();
-    file.write_all(&s).expect("write fail");
-    file.sync_all().expect("sync fail");
-}
 
 fn read_map(map_file: &mut File, lock_file: &mut File) {
     let mut file_string = String::new();
@@ -226,15 +168,18 @@ fn main() {
         .open(lock_file_string)
         .expect("unable to open lock file");
 
-    match matches.value_of("command").unwrap() {
-        "read" => {
-            read_map(&mut map_file, &mut lock_file);
-        }
-        "clean" => {
-            purge_links(&mut lock_file);
-        }
-        _ => {
-            panic!("Invalid command");
-        }
-    }
+
+
+
+    // match matches.value_of("command").unwrap() {
+    //     "read" => {
+    //         read_map(&mut map_file, &mut lock_file);
+    //     }
+    //     "clean" => {
+    //         purge_links(&mut lock_file);
+    //     }
+    //     _ => {
+    //         panic!("Invalid command");
+    //     }
+    // }
 }
