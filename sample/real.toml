@@ -1,0 +1,51 @@
+[zshrc]
+from = 'config/.zshrc'
+to = '~/.zshrc'
+
+[vimrc]
+from = 'config/.vimrc'
+to = '~/.vimrc'
+
+[ideavimrc]
+from = 'config/.ideavimrc'
+to = '~/.ideavimrc'
+
+[ssh-config]
+from = 'config/.ssh/config'
+to = '~/.ssh/config'
+
+[id_rsa]
+from = 'config/.ssh/id_rsa'
+to = '~/.ssh/id_rsa'
+
+[id_rsa_pub]
+from = 'config/.ssh/id_rsa.pub'
+to = '~/.ssh/id_rsa.pub'
+
+[bira2]
+from = 'config/.oh-my-zsh/themes/bira2.zsh-theme'
+to = '~/.oh-my-zsh/themes/bira2.zsh-theme'
+
+[asdfrc]
+from = 'config/.asdfrc'
+to = '~/.asdfrc'
+
+[gitconfig]
+from = 'config/.gitconfig'
+to = '~/.gitconfig'
+
+[envvar]
+from = 'config/.config/environment.d/envvar.sh'
+to = '~/.config/environment.d/envvar.sh'
+
+[sshagent]
+from = 'config/.config/systemd/user/ssh-agent.service'
+to = '~/.config/systemd/user/ssh-agent.service'
+
+[mozwayland]
+from = 'config/.config/plasma-workspace/env/mozwayland.sh'
+to = '~/.config/plasma-workspace/env/mozwayland.sh'
+
+[thefuck]
+from = 'config/.config/thefuck/settings.py'
+to = '~/.config/thefuck/settings.py'

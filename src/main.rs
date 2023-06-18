@@ -1,16 +1,15 @@
-#![feature(absolute_path)]
+#![allow(unused_variables, unused_imports)]
 
 use std::{
 	collections::HashMap,
-	env,
 	fs::{self, File, OpenOptions},
-	io::{Read, Seek, Write},
-	path::{self, Path, PathBuf},
+	io::{Read, Write},
+	os::unix,
+	path::{Path, PathBuf},
 };
 
 use clap::{self, Arg, Command};
 use serde::{Deserialize, Serialize};
-use shellexpand::LookupError;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Link {
@@ -33,35 +32,45 @@ fn default_root() -> bool {
 	false
 }
 
-fn resolve_path(path: String) -> Result<PathBuf, LookupError<VarError>> {
-	match shellexpand::full(path.into()){
-		Ok(p) => p.into(),
-		Err(e) => Err(e),
+fn resolve_path(path: String) -> Result<PathBuf, String> {
+	match shellexpand::full(&path) {
+		Ok(p) => Ok(PathBuf::from(p.into_owned())),
+		Err(e) => Err(e.var_name),
+	}
+}
+
+impl Link {
+	fn resolved_path_to(&self) -> Result<PathBuf, String> {
+		match resolve_path(self.to.clone()) {
+			Ok(p) => Ok(p),
+			Err(e) => Err(e),
+		}
+	}
+
+	fn resolved_path_from(&self) -> Result<PathBuf, String> {
+		match resolve_path(self.from.clone()) {
+			Ok(p) => Ok(p),
+			Err(e) => Err(e),
+		}
 	}
 }
 
 fn create_link(link: &Link) {
-	fs::create_dir_all(str_to_abs(&link.to).as_path().parent().unwrap())
-		.expect("Failed to create directory");
+	let from_path = link.resolved_path_from().unwrap();
+	let to_path = link.resolved_path_to().unwrap();
 
-	// match link.link_type.as_str() {
-	//     "soft" => {
-	//         std::os::unix::fs::symlink(str_to_abs(&link.from), str_to_abs(&link.to))
-	//             .expect("Failed to create symlink");
-	//     }
-	//     "hard" => {
-	//         //std::os::unix::fs::hard_link(link.from, link.to);
-	//         panic!("Hard links are not supported yet");
-	//     }
-	//     _ => {
-	//         panic!("Invalid link type");
-	//     }
-	// }
+	if to_path.is_dir() {
+		fs::create_dir_all(to_path.as_path()).expect("Failed to create directory");
+	} else if to_path.is_file() {
+		fs::create_dir_all(to_path.parent().unwrap()).expect("Failed to remove file");
+	}
+
+	unix::fs::symlink(from_path, to_path).expect("Failed to create symlink");
 }
 
 fn check_link(link: &Link) -> LinkStatus {
-	let from_path = Path::new(&link.from);
-	let to_path = Path::new(&link.to);
+	let from_path = link.resolved_path_from().unwrap();
+	let to_path = link.resolved_path_to().unwrap();
 
 	if !to_path.exists() {
 		LinkStatus::Missing
@@ -70,6 +79,10 @@ fn check_link(link: &Link) -> LinkStatus {
 	} else {
 		match to_path.read_link() {
 			Ok(actual_target) => {
+				println!(
+					"from path: {:?}, actual target: {:?}",
+					from_path, actual_target
+				);
 				if actual_target == from_path {
 					LinkStatus::Correct
 				} else {
@@ -98,21 +111,41 @@ fn read_map(map_file: &mut File) -> HashMap<String, Link> {
 	map
 }
 
-// fn purge_links(lock_file: &mut File) {
-//     let mut file_string = String::new();
-//     lock_file
-//         .read_to_string(&mut file_string)
-//         .expect("read fail");
-//
-//     let lock: HashMap<String, Link> = toml::from_str(&file_string).unwrap();
-//
-//     for (_name, link) in &lock {
-//         destroy_link(link);
-//     }
-//     lock_file.set_len(0).expect("erase failed");
-//     lock_file.rewind().expect("rewind fail");
-//     lock_file.sync_all().expect("sync fail");
-// }
+fn create(map: &HashMap<String, Link>) {
+	for (name, link) in map {
+		println!("{} -> {}", link.from, link.to);
+		create_link(link);
+	}
+}
+
+fn update(map: &HashMap<String, Link>, lock_map: &HashMap<String, Link>) {}
+
+fn status(map: &HashMap<String, Link>) {
+	for (name, link) in map {
+		match check_link(link) {
+			LinkStatus::Missing => {
+				println!("{} -> {}: missing", link.from, link.to);
+			}
+			LinkStatus::NotSymlink => {
+				println!("{} -> {}: not symlink", link.from, link.to);
+			}
+			LinkStatus::Correct => {
+				println!("{} -> {}: correct", link.from, link.to);
+			}
+			LinkStatus::Incorrect(actual_target) => {
+				println!(
+					"{} -> {}: incorrect (actual target: {})",
+					link.from, link.to, actual_target
+				);
+			}
+			LinkStatus::Error(e) => {
+				println!("{} -> {}: error: {:#?}", link.from, link.to, e);
+			}
+		}
+	}
+}
+
+fn clean(map: &HashMap<String, Link>) {}
 
 fn main() {
 	let matches = Command::new("slmap")
@@ -123,7 +156,7 @@ fn main() {
 		.arg(
 			Arg::new("command")
 				.help("which command to run")
-				.value_parser(["read", "status", "clean"]),
+				.value_parser(["create", "update", "status", "clean"]),
 		)
 		.arg(
 			Arg::new("map_file")
@@ -137,78 +170,38 @@ fn main() {
 		)
 		.get_matches();
 
-	let map_file_string = matches.value_of("map_file").unwrap();
-	let lock_file_string = matches.value_of("lock_file").unwrap();
+	let command = matches.get_one::<String>("command").unwrap();
+	let map_file_string = matches.get_one::<String>("map_file").unwrap();
+	let lock_file_string = matches.get_one::<String>("lock_file").unwrap();
+	// let mut map_file = File::open(map_file_string).unwrap();
 
-	let mut map_file = File::open(map_file_string).unwrap();
+	let mut map_file = OpenOptions::new()
+		.read(true)
+		.open(map_file_string)
+		.expect("Unable to open file");
 
-	println!("command: {}", matches.value_of("command").unwrap());
-	println!("map file: {}", map_file_string);
-	println!("lock file: {}", lock_file_string);
+	let mut lock_file = OpenOptions::new()
+		.read(true)
+		.create(true)
+		.write(true)
+		.open(lock_file_string)
+		.expect("unable to open lock file");
 
-	let from_tilde = shellexpand::tilde("~/demo.txt").to_string();
-	let to_tilde = shellexpand::tilde("demo.txt").to_string();
-
-	println!("tilde from: {}", from_tilde);
-	println!("tilde to: {}", to_tilde);
-
-	let from_full = shellexpand::full("$RUSTUP_HOME/thing.txt").unwrap();
-	let to_full = shellexpand::full("~/$PAGER").unwrap();
-
-	println!("full from: {}", from_full);
-	println!("full to: {}", to_full);
-
-	// for (key, value) in env::vars() {
-	// 	println!("{key}: {value}");
-	// }
+	println!(
+		"command: {}, map: {}, lock: {}",
+		command, map_file_string, lock_file_string
+	);
 
 	let map = read_map(&mut map_file);
+	let lock_map = read_map(&mut lock_file);
 
-	for (name, link) in &map {
-		println!("{} -> {}: {:#?}", link.from, link.to, check_link(link));
+	match command.as_str() {
+		"create" => create(&map),
+		"update" => update(&map, &lock_map),
+		"status" => status(&map),
+		"clean" => clean(&lock_map),
+		_ => {
+			panic!("Invalid command");
+		}
 	}
-
-	// println!("{:#?}", from.canonicalize().unwrap());
-	//
-	// std::os::unix::fs::symlink(from, to).expect("Failed to create symlink");
-
-	// println!("{:#?}",
-	// 		 Path::new("sample/map.toml").exists()
-	// );
-
-	// println!("{:#?}",
-	// 		 match Path::new("sample/map.toml").read_link() {
-	// 			 Ok(path) => path,
-	// 			 Err(e) => panic!("error: {:#?}", e),
-	// 		 }
-	// );
-
-	// read_map(&mut map_file);
-
-	// println!("{}", Path::new("~/Desktop/tools/").parent().unwrap().to_str().unwrap());
-
-	// let mut map_file = OpenOptions::new()
-	//     .read(true)
-	//     .open(map_file_string)
-	//     .expect("Unable to open file");
-	//
-	// let mut lock_file = OpenOptions::new()
-	//     .read(true)
-	//     .create(true)
-	//     .write(true)
-	//     .append(true)
-	//     .open(lock_file_string)
-	//     .expect("unable to open lock file");
-
-	// match matches.value_of("command").unwrap() {
-	//     "read" => {
-	//         read_map(&mut map_file, &mut lock_file);
-	//     }
-	//     "clean" => {
-	//         purge_links(&mut lock_file);
-	//     }
-	//     _ => {
-	//         panic!("Invalid command");
-	//     }
-	// }
 }
