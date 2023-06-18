@@ -1,14 +1,16 @@
 #![feature(absolute_path)]
 
-use clap::{self, Arg, Command};
-use serde::{Deserialize, Serialize};
 use std::{
-	collections::{HashMap},
+	collections::HashMap,
+	env,
 	fs::{self, File, OpenOptions},
 	io::{Read, Seek, Write},
-	path::{self, PathBuf},
+	path::{self, Path, PathBuf},
 };
-use std::path::Path;
+
+use clap::{self, Arg, Command};
+use serde::{Deserialize, Serialize};
+use shellexpand::LookupError;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Link {
@@ -18,6 +20,7 @@ struct Link {
 	root: bool,
 }
 
+#[derive(Debug)]
 enum LinkStatus {
 	Correct,
 	Incorrect(String),
@@ -26,13 +29,15 @@ enum LinkStatus {
 	Error(std::io::Error),
 }
 
-
 fn default_root() -> bool {
 	false
 }
 
-fn str_to_abs(path: &String) -> PathBuf {
-	path::absolute(path.as_str()).unwrap().to_path_buf()
+fn resolve_path(path: String) -> Result<PathBuf, LookupError<VarError>> {
+	match shellexpand::full(path.into()){
+		Ok(p) => p.into(),
+		Err(e) => Err(e),
+	}
 }
 
 fn create_link(link: &Link) {
@@ -54,30 +59,33 @@ fn create_link(link: &Link) {
 	// }
 }
 
-
 fn check_link(link: &Link) -> LinkStatus {
 	let from_path = Path::new(&link.from);
 	let to_path = Path::new(&link.to);
 
-
-	if !from_path.exists(){
+	if !to_path.exists() {
 		LinkStatus::Missing
-	} else if !from_path.is_symlink() {
+	} else if !to_path.is_symlink() {
 		LinkStatus::NotSymlink
 	} else {
-		match from_path.read_link() {
+		match to_path.read_link() {
 			Ok(actual_target) => {
-				if actual_target == to_path {
+				if actual_target == from_path {
 					LinkStatus::Correct
 				} else {
-					LinkStatus::Incorrect(actual_target.as_path().to_str().expect("Failed to convert path to string").to_string())
+					LinkStatus::Incorrect(
+						actual_target
+							.as_path()
+							.to_str()
+							.expect("Failed to convert path to string")
+							.to_string(),
+					)
 				}
 			}
-			Err(e) => LinkStatus::Error(e)
+			Err(e) => LinkStatus::Error(e),
 		}
 	}
 }
-
 
 fn read_map(map_file: &mut File) -> HashMap<String, Link> {
 	let mut file_string = String::new();
@@ -86,11 +94,6 @@ fn read_map(map_file: &mut File) -> HashMap<String, Link> {
 		.expect("read fail");
 
 	let map: HashMap<String, Link> = toml::from_str(&file_string).unwrap();
-
-	for (name, link) in &map {
-		println!("{}", name);
-		println!("{:#?}", Path::new(link.to.as_str()));
-	}
 
 	map
 }
@@ -125,12 +128,12 @@ fn main() {
 		.arg(
 			Arg::new("map_file")
 				.help("Map file location")
-				.default_value("map.toml")
+				.default_value("map.toml"),
 		)
 		.arg(
 			Arg::new("lock_file")
 				.help("Lock file location")
-				.default_value("lock.toml")
+				.default_value("lock.toml"),
 		)
 		.get_matches();
 
@@ -143,24 +146,42 @@ fn main() {
 	println!("map file: {}", map_file_string);
 	println!("lock file: {}", lock_file_string);
 
+	let from_tilde = shellexpand::tilde("~/demo.txt").to_string();
+	let to_tilde = shellexpand::tilde("demo.txt").to_string();
 
-	let from = shellexpand::tilde("~/demo.txt").to_string();
-	let to = shellexpand::tilde("demo.txt").to_string();
+	println!("tilde from: {}", from_tilde);
+	println!("tilde to: {}", to_tilde);
+
+	let from_full = shellexpand::full("$RUSTUP_HOME/thing.txt").unwrap();
+	let to_full = shellexpand::full("~/$PAGER").unwrap();
+
+	println!("full from: {}", from_full);
+	println!("full to: {}", to_full);
+
+	// for (key, value) in env::vars() {
+	// 	println!("{key}: {value}");
+	// }
+
+	let map = read_map(&mut map_file);
+
+	for (name, link) in &map {
+		println!("{} -> {}: {:#?}", link.from, link.to, check_link(link));
+	}
 
 	// println!("{:#?}", from.canonicalize().unwrap());
 	//
 	// std::os::unix::fs::symlink(from, to).expect("Failed to create symlink");
 
-	println!("{:#?}",
-			 Path::new("sample/map.toml").exists()
-	);
+	// println!("{:#?}",
+	// 		 Path::new("sample/map.toml").exists()
+	// );
 
-	println!("{:#?}",
-			 match Path::new("sample/map.toml").read_link() {
-				 Ok(path) => path,
-				 Err(e) => panic!("error: {:#?}", e),
-			 }
-	);
+	// println!("{:#?}",
+	// 		 match Path::new("sample/map.toml").read_link() {
+	// 			 Ok(path) => path,
+	// 			 Err(e) => panic!("error: {:#?}", e),
+	// 		 }
+	// );
 
 	// read_map(&mut map_file);
 
@@ -178,7 +199,6 @@ fn main() {
 	//     .append(true)
 	//     .open(lock_file_string)
 	//     .expect("unable to open lock file");
-
 
 	// match matches.value_of("command").unwrap() {
 	//     "read" => {

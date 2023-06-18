@@ -1,1 +1,1 @@
-../dir1/dir1exmaple1.txt
+../dir1/dir1example1.txt

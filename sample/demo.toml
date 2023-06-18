@@ -1,0 +1,3 @@
+[sample1]
+from = '../dir1/dir1example1.txt'
+to = 'sample/dir2/d1e1_sym.txt'
