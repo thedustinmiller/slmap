@@ -1,5 +1,7 @@
 #![allow(unused_variables, unused_imports)]
 
+mod link;
+
 use std::{
 	collections::HashMap,
 	fs::{self, File, OpenOptions},
@@ -10,95 +12,17 @@ use std::{
 
 use clap::{self, Arg, Command};
 use colored::*;
+use link::{Link, LinkStatus};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Link {
-	from: String,
-	to: String,
-	#[serde(default = "default_root")]
-	root: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-enum LinkStatus {
-	Correct,
-	Incorrect(String),
-	NotSymlink,
-	Missing,
-	Error(String),
-}
-
-fn default_root() -> bool {
-	false
-}
-
-impl Link {
-	fn resolved_path_to(&self) -> Result<PathBuf, String> {
-		match resolve_path(self.to.clone()) {
-			Ok(p) => Ok(p),
-			Err(e) => Err(e),
-		}
-	}
-
-	fn resolved_path_from(&self) -> Result<PathBuf, String> {
-		match resolve_path(self.from.clone()) {
-			Ok(p) => Ok(p),
-			Err(e) => Err(e),
-		}
-	}
-
-	fn check_link(&mut self) -> LinkStatus {
-		check_link(self)
-	}
-}
-
-fn resolve_path(path: String) -> Result<PathBuf, String> {
-	match shellexpand::full(&path) {
-		Ok(p) => Ok(PathBuf::from(p.into_owned())),
-		Err(e) => Err(e.var_name),
-	}
-}
-
-fn check_link(link: &Link) -> LinkStatus {
-	let from_path = link.resolved_path_from().unwrap();
-	let to_path = link.resolved_path_to().unwrap();
-
-	if !to_path.exists() {
-		LinkStatus::Missing
-	} else if !to_path.is_symlink() {
-		LinkStatus::NotSymlink
-	} else {
-		match to_path.read_link() {
-			Ok(actual_target) => {
-				if actual_target == from_path {
-					LinkStatus::Correct
-				} else {
-					LinkStatus::Incorrect(
-						actual_target
-							.as_path()
-							.to_str()
-							.expect("Failed to convert path to string")
-							.to_string(),
-					)
-				}
-			}
-			Err(e) => LinkStatus::Error(e.to_string()),
-		}
-	}
-}
-
-fn create_link(link: &Link) {
-	let from_path = link.resolved_path_from().unwrap();
-	let to_path = link.resolved_path_to().unwrap();
-
-	if to_path.is_dir() {
-		fs::create_dir_all(to_path.as_path()).expect("Failed to create directory");
-	} else if to_path.is_file() {
-		fs::create_dir_all(to_path.parent().unwrap()).expect("Failed to remove file");
-	}
-
-	unix::fs::symlink(from_path, to_path).expect("Failed to create symlink");
+#[derive(Clone)]
+struct Statuses<'a> {
+	link_tuples: Vec<(&'a String, &'a Link, LinkStatus)>,
+	missing: i32,
+	not_symlink: i32,
+	correct: i32,
+	incorrect: i32,
+	error: i32,
 }
 
 fn read_map(map_file: &mut File) -> HashMap<String, Link> {
@@ -115,42 +39,112 @@ fn read_map(map_file: &mut File) -> HashMap<String, Link> {
 fn create(map: &HashMap<String, Link>) {
 	for (name, link) in map {
 		println!("{} -> {}", link.from, link.to);
-		create_link(link);
+		link.create_link();
 	}
 }
 
 fn update(map: &HashMap<String, Link>, lock_map: &HashMap<String, Link>) {}
 
-fn status(map: &HashMap<String, Link>) -> Vec<(&String, &Link, LinkStatus)> {
-	let mut statuses = Vec::new();
+fn statuses(map: &HashMap<String, Link>) -> Statuses {
+	let mut statuses: Vec<(&String, &Link, LinkStatus)> = Vec::new();
+	let mut missing = 0;
+	let mut not_symlink = 0;
+	let mut correct = 0;
+	let mut incorrect = 0;
+	let mut error = 0;
+
 	for (name, link) in map {
-		match check_link(link) {
+		match link.check_link() {
 			LinkStatus::Missing => {
 				statuses.push((name, link, LinkStatus::Missing));
-				// println!("{} -> {}: missing", link.from, link.to);
+				missing += 1;
 			}
 			LinkStatus::NotSymlink => {
 				statuses.push((name, link, LinkStatus::NotSymlink));
-				// println!("{} -> {}: not symlink", link.from, link.to);
+				not_symlink += 1;
 			}
 			LinkStatus::Correct => {
 				statuses.push((name, link, LinkStatus::Correct));
-				// println!("{} -> {}: correct", link.from, link.to);
+				correct += 1;
 			}
 			LinkStatus::Incorrect(actual_target) => {
 				statuses.push((name, link, LinkStatus::Incorrect(actual_target)));
-				// println!(
-				// 	"{} -> {}: incorrect (actual target: {})",
-				// 	link.from, link.to, actual_target
-				// );
+				incorrect += 1;
 			}
 			LinkStatus::Error(e) => {
 				statuses.push((name, link, LinkStatus::Error(e)));
-				// println!("{} -> {}: error: {:#?}", link.from, link.to, e);
+				error += 1;
 			}
 		}
 	}
-	statuses
+	Statuses {
+		link_tuples: statuses,
+		missing,
+		not_symlink,
+		correct,
+		incorrect,
+		error,
+	}
+}
+
+fn print_statuses(statuses: &Statuses) {
+	let mut shorthand = Vec::<ColoredString>::new();
+	let mut longhand = Vec::<String>::new();
+
+	for (name, link, status) in statuses.link_tuples.iter() {
+		match status {
+			LinkStatus::Missing => {
+				shorthand.push("M".yellow());
+				longhand.push(format!(
+					"{}: missing\n\n\t{} -> {}",
+					name, link.from, link.to
+				));
+			}
+			LinkStatus::NotSymlink => {
+				shorthand.push("S".red());
+				longhand.push(format!(
+					"{}: is file/not symlink\n\n\t{} -> {}",
+					name, link.from, link.to
+				));
+			}
+			LinkStatus::Correct => {
+				shorthand.push(".".green());
+			}
+			LinkStatus::Incorrect(actual_target) => {
+				shorthand.push("I".red());
+				longhand.push(format!(
+					"{}: incorrect\n\n\t{} -> {}; (actual target: {})",
+					name, link.from, link.to, actual_target
+				));
+			}
+			LinkStatus::Error(e) => {
+				shorthand.push("E".red());
+				longhand.push(format!(
+					"{}: error\n\n\t{} -> {}; error: {:#?}",
+					name, link.from, link.to, e
+				));
+			}
+		}
+		longhand.push("".to_string());
+	}
+	for char in shorthand {
+		print!("{}", char);
+	}
+
+	println!();
+
+	for line in longhand {
+		println!("{}", line);
+	}
+	println!();
+	println!(
+		"missing: {}, not symlink: {}, correct: {}, incorrect: {}, error: {}",
+		statuses.missing.to_string().yellow(),
+		statuses.not_symlink.to_string().red(),
+		statuses.correct.to_string().green(),
+		statuses.incorrect.to_string().red(),
+		statuses.error.to_string().red()
+	);
 }
 
 fn clean(map: &HashMap<String, Link>) {}
@@ -205,82 +199,23 @@ fn main() {
 
 	match command.as_str() {
 		"create" => {
-			let statuses: Vec<LinkStatus> = status(&map)
-				.into_iter()
-				.map(|(name, link, status)| status)
-				.collect();
-			if statuses.iter().any(|status| *status != LinkStatus::Correct) {
-				println!("Cannot create links, status is not correct");
+			let statuses = statuses(&map);
+			if statuses.error + statuses.incorrect + statuses.not_symlink > 0 {
+				println!("Refusing to create links, there are conflicts or errors");
+				print_statuses(&statuses);
+			} else if statuses.correct > 0 {
+				println!("Refusing to create links, they are already correct");
+				print_statuses(&statuses);
+			} else if statuses.missing == 0 {
+				println!("There is nothing to do; no writes will be made");
 			} else {
-				// create(&map)
-				println!("dry run");
+				create(&map);
 			}
 		}
 		"update" => update(&map, &lock_map),
 		"status" => {
-			let statuses = status(&map);
-			let mut shorthand = Vec::<ColoredString>::new();
-			let mut longhand = Vec::<String>::new();
-			let mut missing = 0;
-			let mut not_symlink = 0;
-			let mut correct = 0;
-			let mut incorrect = 0;
-			let mut error = 0;
-
-			for (name, link, status) in statuses {
-				match status {
-					LinkStatus::Missing => {
-						shorthand.push("M".yellow());
-						missing += 1;
-						longhand.push(format!("{}: missing\n\t{} -> {}", name, link.from, link.to));
-					}
-					LinkStatus::NotSymlink => {
-						shorthand.push("S".red());
-						not_symlink += 1;
-						longhand.push(format!(
-							"{}: not symlink\n\t{} -> {}",
-							name, link.from, link.to
-						));
-					}
-					LinkStatus::Correct => {
-						shorthand.push(".".green());
-						correct += 1;
-					}
-					LinkStatus::Incorrect(actual_target) => {
-						shorthand.push("I".red());
-						incorrect += 1;
-						longhand.push(format!(
-							"{}: incorrect\n\t{} -> {}; (actual target: {})",
-							name, link.from, link.to, actual_target
-						));
-					}
-					LinkStatus::Error(e) => {
-						shorthand.push("E".red());
-						error += 1;
-						longhand.push(format!(
-							"{}: error\n\t{} -> {}; error: {:#?}",
-							name, link.from, link.to, e
-						));
-					}
-				}
-			}
-			for char in shorthand {
-				print!("{}", char);
-			}
-
-			println!();
-
-			for line in longhand {
-				println!("{}", line);
-			}
-			println!(
-				"missing: {}, not symlink: {}, correct: {}, incorrect: {}, error: {}",
-				missing.to_string().yellow(),
-				not_symlink.to_string().red(),
-				correct.to_string().green(),
-				incorrect.to_string().red(),
-				error.to_string().red()
-			);
+			// let statuses = statuses(&map);
+			print_statuses(&statuses(&map));
 		}
 		"clean" => clean(&lock_map),
 		_ => {
