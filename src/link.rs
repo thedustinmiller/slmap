@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Link {
-	pub from: String,
-	pub to: String,
+	pub target: String,
+	pub link_name: String,
 	#[serde(default = "default_root")]
 	pub root: bool,
 }
@@ -30,32 +30,32 @@ fn default_root() -> bool {
 }
 
 impl Link {
-	pub fn resolved_path_to(&self) -> Result<PathBuf, String> {
-		match resolve_path(self.to.clone()) {
+	pub fn resolved_link_name(&self) -> Result<PathBuf, String> {
+		match resolve_path(self.link_name.clone()) {
 			Ok(p) => Ok(p),
 			Err(e) => Err(e),
 		}
 	}
 
-	pub fn resolved_path_from(&self) -> Result<PathBuf, String> {
-		match resolve_path(self.from.clone()) {
+	pub fn resolved_target(&self) -> Result<PathBuf, String> {
+		match resolve_path(self.target.clone()) {
 			Ok(p) => Ok(p),
 			Err(e) => Err(e),
 		}
 	}
 
 	pub fn check_link(&self) -> LinkStatus {
-		let from_path = self.resolved_path_from().unwrap();
-		let to_path = self.resolved_path_to().unwrap();
+		let target = self.resolved_target().unwrap();
+		let link_name = self.resolved_link_name().unwrap();
 
-		if !to_path.exists() {
+		if !link_name.exists() {
 			LinkStatus::Missing
-		} else if !to_path.is_symlink() {
+		} else if !link_name.is_symlink() {
 			LinkStatus::NotSymlink
 		} else {
-			match to_path.read_link() {
+			match link_name.read_link() {
 				Ok(actual_target) => {
-					if actual_target == from_path {
+					if actual_target == target {
 						LinkStatus::Correct
 					} else {
 						LinkStatus::Incorrect(
@@ -73,16 +73,28 @@ impl Link {
 	}
 
 	pub fn create_link(&self) {
-		let from_path = self.resolved_path_from().unwrap();
-		let to_path = self.resolved_path_to().unwrap();
+		let target = self.resolved_target().unwrap();
+		let link_name = self.resolved_link_name().unwrap();
 
-		if to_path.is_dir() {
-			fs::create_dir_all(to_path.as_path()).expect("Failed to create directory");
-		} else if to_path.is_file() {
-			fs::create_dir_all(to_path.parent().unwrap()).expect("Failed to remove file");
+		if link_name.is_dir() {
+			fs::create_dir_all(link_name.as_path()).expect("Failed to create directory");
+		} else if link_name.is_file() {
+			fs::create_dir_all(link_name.parent().unwrap()).expect("Failed to remove file");
 		}
 
-		unix::fs::symlink(from_path, to_path).expect("Failed to create symlink");
+		unix::fs::symlink(target, link_name).expect("Failed to create symlink");
+	}
+
+	pub fn delete_link(&self) -> Result<(), String> {
+		let link_name = self.resolved_link_name().unwrap();
+		if link_name.is_symlink() {
+			match fs::remove_file(link_name.as_path()) {
+				Ok(_) => Ok(()),
+				Err(e) => Err(e.to_string()),
+			}
+		} else {
+			Err("Not a symlink".to_string())
+		}
 	}
 }
 

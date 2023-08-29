@@ -10,7 +10,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 
-use clap::{self, Arg, Command};
+use clap::{self, Arg, ArgAction, Command};
 use colored::*;
 use link::{Link, LinkStatus};
 use serde::{Deserialize, Serialize};
@@ -38,12 +38,43 @@ fn read_map(map_file: &mut File) -> HashMap<String, Link> {
 
 fn create(map: &HashMap<String, Link>) {
 	for (name, link) in map {
-		println!("{} -> {}", link.from, link.to);
+		println!("{} -> {}", link.link_name, link.target);
 		link.create_link();
 	}
 }
 
-fn update(map: &HashMap<String, Link>, lock_map: &HashMap<String, Link>) {}
+fn clean(map: &HashMap<String, Link>) {
+	for (name, link) in map {
+		println!("{} -> {}", link.link_name, link.target);
+		let _ = link.delete_link();
+	}
+}
+
+fn update(map: &HashMap<String, Link>) {
+	clean(map);
+	create(map);
+}
+
+fn create_dry_run(map: &HashMap<String, Link>) {
+	for (name, link) in map {
+		println!(
+			"Create {:?} -> {:?}",
+			link.resolved_link_name().unwrap(),
+			link.resolved_target().unwrap()
+		);
+	}
+}
+
+fn clean_dry_run(map: &HashMap<String, Link>) {
+	for (name, link) in map {
+		println!("Delete {:?}", link.resolved_link_name().unwrap());
+	}
+}
+
+fn update_dry_run(map: &HashMap<String, Link>) {
+	clean_dry_run(map);
+	create_dry_run(map);
+}
 
 fn statuses(map: &HashMap<String, Link>) -> Statuses {
 	let mut statuses: Vec<(&String, &Link, LinkStatus)> = Vec::new();
@@ -97,14 +128,14 @@ fn print_statuses(statuses: &Statuses) {
 				shorthand.push("M".yellow());
 				longhand.push(format!(
 					"{}: missing\n\n\t{} -> {}",
-					name, link.from, link.to
+					name, link.link_name, link.target
 				));
 			}
 			LinkStatus::NotSymlink => {
 				shorthand.push("S".red());
 				longhand.push(format!(
 					"{}: is file/not symlink\n\n\t{} -> {}",
-					name, link.from, link.to
+					name, link.link_name, link.target
 				));
 			}
 			LinkStatus::Correct => {
@@ -114,14 +145,14 @@ fn print_statuses(statuses: &Statuses) {
 				shorthand.push("I".red());
 				longhand.push(format!(
 					"{}: incorrect\n\n\t{} -> {}; (actual target: {})",
-					name, link.from, link.to, actual_target
+					name, link.link_name, link.target, actual_target
 				));
 			}
 			LinkStatus::Error(e) => {
 				shorthand.push("E".red());
 				longhand.push(format!(
 					"{}: error\n\n\t{} -> {}; error: {:#?}",
-					name, link.from, link.to, e
+					name, link.link_name, link.target, e
 				));
 			}
 		}
@@ -147,8 +178,6 @@ fn print_statuses(statuses: &Statuses) {
 	);
 }
 
-fn clean(map: &HashMap<String, Link>) {}
-
 fn main() {
 	let matches = Command::new("slmap")
 		.about("symlink manager")
@@ -162,40 +191,29 @@ fn main() {
 		)
 		.arg(
 			Arg::new("map_file")
+				.short('m')
+				.long("map")
 				.help("Map file location")
 				.default_value("map.toml"),
 		)
 		.arg(
-			Arg::new("lock_file")
-				.help("Lock file location")
-				.default_value("lock.toml"),
+			Arg::new("dry-run")
+				.short('d')
+				.long("dry-run")
+				.action(ArgAction::SetTrue),
 		)
 		.get_matches();
 
 	let command = matches.get_one::<String>("command").unwrap();
+	let dry_run = matches.get_flag("dry-run");
 	let map_file_string = matches.get_one::<String>("map_file").unwrap();
-	let lock_file_string = matches.get_one::<String>("lock_file").unwrap();
-	// let mut map_file = File::open(map_file_string).unwrap();
 
 	let mut map_file = OpenOptions::new()
 		.read(true)
 		.open(map_file_string)
-		.expect("Unable to open file");
-
-	let mut lock_file = OpenOptions::new()
-		.read(true)
-		.create(true)
-		.write(true)
-		.open(lock_file_string)
-		.expect("unable to open lock file");
-
-	println!(
-		"command: {}, map: {}, lock: {}",
-		command, map_file_string, lock_file_string
-	);
+		.expect("Unable to open map file");
 
 	let map = read_map(&mut map_file);
-	let lock_map = read_map(&mut lock_file);
 
 	match command.as_str() {
 		"create" => {
@@ -208,16 +226,43 @@ fn main() {
 				print_statuses(&statuses);
 			} else if statuses.missing == 0 {
 				println!("There is nothing to do; no writes will be made");
+			} else if dry_run {
+				create_dry_run(&map);
 			} else {
 				create(&map);
 			}
 		}
-		"update" => update(&map, &lock_map),
+		"update" => {
+			let statuses = statuses(&map);
+			if statuses.error + statuses.not_symlink > 0 {
+				println!("Refusing to update links, there are conflicts or errors");
+				print_statuses(&statuses);
+			} else if statuses.incorrect + statuses.missing == 0 {
+				println!("Nothing to update");
+				print_statuses(&statuses);
+			} else if dry_run {
+				update_dry_run(&map);
+			} else {
+				update(&map);
+			}
+		}
 		"status" => {
-			// let statuses = statuses(&map);
 			print_statuses(&statuses(&map));
 		}
-		"clean" => clean(&lock_map),
+		"clean" => {
+			let statuses = statuses(&map);
+			if statuses.error + statuses.not_symlink > 0 {
+				println!("Refusing to clean links, there are conflicts or errors");
+				print_statuses(&statuses);
+			} else if statuses.incorrect + statuses.missing > 0 {
+				println!("Refusing to clean links, there are missing or incorrect links");
+				print_statuses(&statuses);
+			} else if dry_run {
+				clean_dry_run(&map);
+			} else {
+				clean(&map);
+			}
+		}
 		_ => {
 			panic!("Invalid command");
 		}

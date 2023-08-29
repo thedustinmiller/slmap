@@ -1,3 +1,7 @@
 [sample1]
-from = '../dir1/dir1example1.txt'
-to = 'sample/dir2/d1e1_sym.txt'
+target = '$PWD/sample/dir1/dir1example1.txt'
+link_name = '$PWD/sample/dir2/d1e1_sym.txt'
+
+[sample2]
+target = '$PWD/README'
+link_name = '~/README'

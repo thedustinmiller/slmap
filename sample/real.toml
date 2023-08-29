@@ -1,51 +1,51 @@
 [zshrc]
-from = 'config/.zshrc'
-to = '~/.zshrc'
+target = '$PWD/config/.zshrc'
+link_name = '~/.zshrc'
 
 [vimrc]
-from = 'config/.vimrc'
-to = '~/.vimrc'
+target = '$PWD/config/.vimrc'
+link_name = '~/.vimrc'
 
 [ideavimrc]
-from = 'config/.ideavimrc'
-to = '~/.ideavimrc'
+target = '$PWD/config/.ideavimrc'
+link_name = '~/.ideavimrc'
 
 [ssh-config]
-from = 'config/.ssh/config'
-to = '~/.ssh/config'
+target = '$PWD/config/.ssh/config'
+link_name = '~/.ssh/config'
 
 [id_rsa]
-from = 'config/.ssh/id_rsa'
-to = '~/.ssh/id_rsa'
+target = '$PWD/config/.ssh/id_rsa'
+link_name = '~/.ssh/id_rsa'
 
 [id_rsa_pub]
-from = 'config/.ssh/id_rsa.pub'
-to = '~/.ssh/id_rsa.pub'
+target = '$PWD/config/.ssh/id_rsa.pub'
+link_name = '~/.ssh/id_rsa.pub'
 
 [bira2]
-from = 'config/.oh-my-zsh/themes/bira2.zsh-theme'
-to = '~/.oh-my-zsh/themes/bira2.zsh-theme'
+target = '$PWD/config/.oh-my-zsh/themes/bira2.zsh-theme'
+link_name = '~/.oh-my-zsh/themes/bira2.zsh-theme'
 
 [asdfrc]
-from = 'config/.asdfrc'
-to = '~/.asdfrc'
+target = '$PWD/config/.asdfrc'
+link_name = '~/.asdfrc'
 
 [gitconfig]
-from = 'config/.gitconfig'
-to = '~/.gitconfig'
+target = '$PWD/config/.gitconfig'
+link_name = '~/.gitconfig'
 
 [envvar]
-from = 'config/.config/environment.d/envvar.sh'
-to = '~/.config/environment.d/envvar.sh'
+target = '$PWD/config/.config/environment.d/envvar.sh'
+link_name = '~/.config/environment.d/envvar.sh'
 
 [sshagent]
-from = 'config/.config/systemd/user/ssh-agent.service'
-to = '~/.config/systemd/user/ssh-agent.service'
+target = '$PWD/config/.config/systemd/user/ssh-agent.service'
+link_name = '~/.config/systemd/user/ssh-agent.service'
 
 [mozwayland]
-from = 'config/.config/plasma-workspace/env/mozwayland.sh'
-to = '~/.config/plasma-workspace/env/mozwayland.sh'
+target = '$PWD/config/.config/plasma-workspace/env/mozwayland.sh'
+link_name = '~/.config/plasma-workspace/env/mozwayland.sh'
 
 [thefuck]
-from = 'config/.config/thefuck/settings.py'
-to = '~/.config/thefuck/settings.py'
+target = '$PWD/config/.config/thefuck/settings.py'
+link_name = '~/.config/thefuck/settings.py'
