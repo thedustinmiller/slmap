@@ -181,7 +181,7 @@ fn print_statuses(statuses: &Statuses) {
 fn main() {
 	let matches = Command::new("slmap")
 		.about("symlink manager")
-		.version("0.1.2")
+		.version("0.2.0")
 		.arg_required_else_help(true)
 		.author("Dustin Miller")
 		.arg(

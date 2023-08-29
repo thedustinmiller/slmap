@@ -1,7 +1,0 @@
-[sample1]
-target = '$PWD/sample/dir1/dir1example1.txt'
-link_name = '$PWD/sample/dir2/d1e1_sym.txt'
-
-[sample2]
-target = '$PWD/README'
-link_name = '~/README'
