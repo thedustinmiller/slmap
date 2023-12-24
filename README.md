@@ -24,14 +24,17 @@ Future goals:
 - error handling nicely vs just panics
 - checking in a new file to the map
   - swap out the txt into the repository and update the map
-- 
 
 file format:  
 ```toml
 [filename]  
 target = 'path/to/file'  
-link_name = 'path/to/file'  
-root = true/false
+link_name = 'path/to/file'
+
+[directory]
+target = 'config/dir'
+link_name = 'test/dir'
+directory = true
 
 [zshrc]  
 target = 'config/zshrc'  
@@ -39,14 +42,9 @@ link_name = 'test/.zshrc'
   
 [vimrc]  
 target = 'config/vimrc'  
-link_name = 'test/.vimrc'  
-  
-[folder]  
-target = 'config/folder'  
-link_name = 'test/folder'
+link_name = 'test/.vimrc'   
 
 [motd]
 target = 'config/motd'
 link_name = '/etc/motd'
-root = true
 ```

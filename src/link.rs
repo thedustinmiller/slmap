@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 pub struct Link {
     pub target: String,
     pub link_name: String,
+    #[serde(default = "default_directory")]
+    pub directory: bool,
     #[serde(default = "default_root")]
     pub root: bool,
 }
@@ -26,6 +28,10 @@ pub enum LinkStatus {
 }
 
 fn default_root() -> bool {
+    false
+}
+
+fn default_directory() -> bool {
     false
 }
 
@@ -76,11 +82,7 @@ impl Link {
         let target = self.resolved_target().unwrap();
         let link_name = self.resolved_link_name().unwrap();
 
-        if link_name.is_dir() {
-            fs::create_dir_all(link_name.as_path()).expect("Failed to create directory");
-        } else if link_name.is_file() {
-            fs::create_dir_all(link_name.parent().unwrap()).expect("Failed to remove file");
-        }
+        fs::create_dir_all(link_name.parent().unwrap()).expect("Failed to create parent directories");
 
         unix::fs::symlink(target, link_name).expect("Failed to create symlink");
     }
