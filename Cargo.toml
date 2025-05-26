@@ -20,3 +20,12 @@ colored = "2.0.0"
 [profile.release]
 lto = true
 strip = true
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.8" # Added for temporary directories in tests
+
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"
