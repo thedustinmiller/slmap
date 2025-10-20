@@ -76,7 +76,7 @@ fn update_dry_run(map: &HashMap<String, Link>) {
     create_dry_run(map);
 }
 
-fn statuses(map: &HashMap<String, Link>) -> Statuses {
+fn statuses(map: &HashMap<String, Link>) -> Statuses<'_> {
     let mut statuses: Vec<(&String, &Link, LinkStatus)> = Vec::new();
     let mut missing = 0;
     let mut not_symlink = 0;
