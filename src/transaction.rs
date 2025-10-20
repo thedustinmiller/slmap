@@ -134,7 +134,7 @@ impl Transaction {
                 Ok(rollback) => {
                     self.completed.push(rollback);
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Operation failed, rollback all completed operations
                     self.rollback(fs);
                     return Err(SlmapError::TransactionFailed(self.completed.len()));

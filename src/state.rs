@@ -17,7 +17,7 @@ pub enum Change {
 }
 
 /// Execution plan containing all changes to apply
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ExecutionPlan {
     changes: Vec<Change>,
 }
@@ -162,8 +162,8 @@ impl StateManager {
         // Compute what needs to change
         let plan = Self::compute_plan(desired, fs);
 
-        // Convert plan to transaction
-        let mut transaction = plan.into_transaction()?;
+        // Convert plan to transaction (clone to retain ownership)
+        let mut transaction = plan.clone().into_transaction()?;
 
         // Execute transaction (atomic - rolls back on failure)
         transaction.execute(fs)?;
