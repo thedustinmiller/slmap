@@ -151,7 +151,7 @@ fn resolve_path(path: &str) -> Result<PathBuf> {
 }
 
 /// Check if a path looks suspicious (basic path traversal detection)
-fn is_suspicious_path(path: &PathBuf) -> bool {
+fn is_suspicious_path(path: &std::path::Path) -> bool {
     // This is a basic check - could be more sophisticated
     let path_str = path.to_string_lossy();
     path_str.contains("..") && !path_str.starts_with('.')
