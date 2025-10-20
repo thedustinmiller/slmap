@@ -191,4 +191,255 @@ mod tests {
         assert_eq!(transaction.len(), 1);
         assert!(!transaction.is_empty());
     }
+
+    #[test]
+    fn test_transaction_single_create_link() {
+        let fs = MemoryFileSystem::new();
+        let mut transaction = Transaction::new();
+
+        let target = PathBuf::from("/target");
+        let link = PathBuf::from("/link");
+
+        transaction.add_operation(Operation::CreateLink {
+            target: target.clone(),
+            link: link.clone(),
+        });
+
+        // Execute transaction
+        let result = transaction.execute(&fs);
+        assert!(result.is_ok());
+
+        // Verify link was created
+        assert!(fs.exists(&link));
+        assert!(fs.is_symlink(&link));
+        assert_eq!(fs.read_link(&link).unwrap(), target);
+    }
+
+    #[test]
+    fn test_transaction_multiple_create_links() {
+        let fs = MemoryFileSystem::new();
+        let mut transaction = Transaction::new();
+
+        let target1 = PathBuf::from("/target1");
+        let link1 = PathBuf::from("/link1");
+        let target2 = PathBuf::from("/target2");
+        let link2 = PathBuf::from("/link2");
+
+        transaction.add_operation(Operation::CreateLink {
+            target: target1.clone(),
+            link: link1.clone(),
+        });
+        transaction.add_operation(Operation::CreateLink {
+            target: target2.clone(),
+            link: link2.clone(),
+        });
+
+        // Execute transaction
+        let result = transaction.execute(&fs);
+        assert!(result.is_ok());
+
+        // Verify both links were created
+        assert!(fs.exists(&link1));
+        assert!(fs.exists(&link2));
+        assert_eq!(fs.read_link(&link1).unwrap(), target1);
+        assert_eq!(fs.read_link(&link2).unwrap(), target2);
+    }
+
+    #[test]
+    fn test_transaction_rollback_on_failure() {
+        let fs = MemoryFileSystem::new();
+        let mut transaction = Transaction::new();
+
+        let target1 = PathBuf::from("/target1");
+        let link1 = PathBuf::from("/link1");
+        let target2 = PathBuf::from("/target2");
+        let link2 = PathBuf::from("/link2");
+
+        // Pre-create link2 to cause a conflict
+        fs.add_file(link2.clone());
+
+        transaction.add_operation(Operation::CreateLink {
+            target: target1.clone(),
+            link: link1.clone(),
+        });
+        transaction.add_operation(Operation::CreateLink {
+            target: target2.clone(),
+            link: link2.clone(), // This will fail
+        });
+
+        // Execute transaction
+        let result = transaction.execute(&fs);
+        assert!(result.is_err());
+
+        // Verify link1 was rolled back (should not exist as symlink)
+        assert!(!fs.is_symlink(&link1), "link1 should have been rolled back");
+
+        // Verify link2 still exists as regular file
+        assert!(fs.exists(&link2));
+        assert!(!fs.is_symlink(&link2));
+    }
+
+    #[test]
+    fn test_transaction_remove_link() {
+        let fs = MemoryFileSystem::new();
+
+        let target = PathBuf::from("/target");
+        let link = PathBuf::from("/link");
+
+        // Create a symlink first
+        fs.add_symlink(link.clone(), target.clone());
+        assert!(fs.exists(&link));
+
+        // Create transaction to remove it
+        let mut transaction = Transaction::new();
+        transaction.add_operation(Operation::RemoveLink { link: link.clone() });
+
+        // Execute
+        let result = transaction.execute(&fs);
+        assert!(result.is_ok());
+
+        // Verify link was removed
+        assert!(!fs.exists(&link));
+    }
+
+    #[test]
+    fn test_transaction_remove_rollback() {
+        let fs = MemoryFileSystem::new();
+
+        let target1 = PathBuf::from("/target1");
+        let link1 = PathBuf::from("/link1");
+        let link2 = PathBuf::from("/link2");
+
+        // Create link1
+        fs.add_symlink(link1.clone(), target1.clone());
+
+        // Create conflict at link2
+        fs.add_file(link2.clone());
+
+        // Transaction: remove link1, then try to create link2 (will fail)
+        let mut transaction = Transaction::new();
+        transaction.add_operation(Operation::RemoveLink {
+            link: link1.clone(),
+        });
+        transaction.add_operation(Operation::CreateLink {
+            target: PathBuf::from("/target2"),
+            link: link2.clone(),
+        });
+
+        // Execute - should fail and rollback
+        let result = transaction.execute(&fs);
+        assert!(result.is_err());
+
+        // Verify link1 was restored
+        assert!(fs.exists(&link1), "link1 should be restored");
+        assert!(fs.is_symlink(&link1), "link1 should be a symlink");
+        assert_eq!(
+            fs.read_link(&link1).unwrap(),
+            target1,
+            "link1 should point to original target"
+        );
+    }
+
+    #[test]
+    fn test_transaction_update_link() {
+        let fs = MemoryFileSystem::new();
+
+        let old_target = PathBuf::from("/old_target");
+        let new_target = PathBuf::from("/new_target");
+        let link = PathBuf::from("/link");
+
+        // Create link with old target
+        fs.add_symlink(link.clone(), old_target.clone());
+
+        // Create transaction to update it
+        let mut transaction = Transaction::new();
+        transaction.add_operation(Operation::UpdateLink {
+            link: link.clone(),
+            old_target: old_target.clone(),
+            new_target: new_target.clone(),
+        });
+
+        // Execute
+        let result = transaction.execute(&fs);
+        assert!(result.is_ok());
+
+        // Verify link now points to new target
+        assert!(fs.exists(&link));
+        assert!(fs.is_symlink(&link));
+        assert_eq!(fs.read_link(&link).unwrap(), new_target);
+    }
+
+    #[test]
+    fn test_transaction_complex_rollback() {
+        let fs = MemoryFileSystem::new();
+
+        let target1 = PathBuf::from("/target1");
+        let link1 = PathBuf::from("/link1");
+        let target2 = PathBuf::from("/target2");
+        let link2 = PathBuf::from("/link2");
+        let target3 = PathBuf::from("/target3");
+        let link3 = PathBuf::from("/link3");
+
+        // Pre-create link3 to cause failure
+        fs.add_file(link3.clone());
+
+        // Transaction with 3 operations, last one will fail
+        let mut transaction = Transaction::new();
+        transaction.add_operation(Operation::CreateLink {
+            target: target1.clone(),
+            link: link1.clone(),
+        });
+        transaction.add_operation(Operation::CreateLink {
+            target: target2.clone(),
+            link: link2.clone(),
+        });
+        transaction.add_operation(Operation::CreateLink {
+            target: target3.clone(),
+            link: link3.clone(), // Will fail
+        });
+
+        // Execute
+        let result = transaction.execute(&fs);
+        assert!(result.is_err());
+
+        // Verify all successful operations were rolled back
+        assert!(!fs.is_symlink(&link1), "link1 should be rolled back");
+        assert!(!fs.is_symlink(&link2), "link2 should be rolled back");
+
+        // Verify link3 is unchanged
+        assert!(fs.exists(&link3));
+        assert!(!fs.is_symlink(&link3));
+    }
+
+    #[test]
+    fn test_operation_create_with_parent_dirs() {
+        let fs = MemoryFileSystem::new();
+        let mut transaction = Transaction::new();
+
+        let target = PathBuf::from("/target");
+        let link = PathBuf::from("/parent/child/link");
+
+        transaction.add_operation(Operation::CreateLink {
+            target: target.clone(),
+            link: link.clone(),
+        });
+
+        // Execute
+        let result = transaction.execute(&fs);
+        assert!(result.is_ok());
+
+        // Verify parent directory was created
+        assert!(fs.exists(&PathBuf::from("/parent/child")));
+        assert!(fs.is_dir(&PathBuf::from("/parent/child")));
+
+        // Verify link was created
+        assert!(fs.exists(&link));
+        assert!(fs.is_symlink(&link));
+    }
+
+    #[test]
+    fn test_transaction_default() {
+        let transaction = Transaction::default();
+        assert!(transaction.is_empty());
+    }
 }

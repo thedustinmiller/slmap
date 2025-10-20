@@ -252,4 +252,239 @@ mod tests {
 
         assert!(StateManager::is_synced(&desired, &fs));
     }
+
+    #[test]
+    fn test_compute_plan_create_missing() {
+        let fs = MemoryFileSystem::new();
+        let mut desired = LinkMap::new();
+
+        desired.insert(
+            "link1".to_string(),
+            Link {
+                target: "/target".to_string(),
+                link_name: "/link".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        let plan = StateManager::compute_plan(&desired, &fs);
+        let (creates, updates, removes, no_changes) = plan.summary();
+
+        assert_eq!(creates, 1);
+        assert_eq!(updates, 0);
+        assert_eq!(removes, 0);
+        assert_eq!(no_changes, 0);
+    }
+
+    #[test]
+    fn test_compute_plan_recognizes_correct() {
+        let fs = MemoryFileSystem::new();
+
+        let target = std::path::PathBuf::from("/target");
+        let link = std::path::PathBuf::from("/link");
+
+        // Create symlink
+        fs.add_symlink(link.clone(), target.clone());
+
+        let mut desired = LinkMap::new();
+        desired.insert(
+            "link1".to_string(),
+            Link {
+                target: "/target".to_string(),
+                link_name: "/link".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        let plan = StateManager::compute_plan(&desired, &fs);
+        let (creates, updates, removes, no_changes) = plan.summary();
+
+        assert_eq!(creates, 0);
+        assert_eq!(updates, 0);
+        assert_eq!(removes, 0);
+        assert_eq!(no_changes, 1);
+    }
+
+    #[test]
+    fn test_compute_plan_detects_incorrect() {
+        let fs = MemoryFileSystem::new();
+
+        let old_target = std::path::PathBuf::from("/old_target");
+        let link = std::path::PathBuf::from("/link");
+
+        // Create symlink with wrong target
+        fs.add_symlink(link.clone(), old_target);
+
+        let mut desired = LinkMap::new();
+        desired.insert(
+            "link1".to_string(),
+            Link {
+                target: "/new_target".to_string(),
+                link_name: "/link".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        let plan = StateManager::compute_plan(&desired, &fs);
+        let (creates, updates, removes, no_changes) = plan.summary();
+
+        assert_eq!(creates, 0);
+        assert_eq!(updates, 1);
+        assert_eq!(removes, 0);
+        assert_eq!(no_changes, 0);
+    }
+
+    #[test]
+    fn test_compute_plan_mixed_state() {
+        let fs = MemoryFileSystem::new();
+
+        // Setup: one missing, one correct, one incorrect
+        let correct_link = std::path::PathBuf::from("/correct");
+        let correct_target = std::path::PathBuf::from("/correct_target");
+        fs.add_symlink(correct_link, correct_target);
+
+        let incorrect_link = std::path::PathBuf::from("/incorrect");
+        let old_target = std::path::PathBuf::from("/old");
+        fs.add_symlink(incorrect_link, old_target);
+
+        let mut desired = LinkMap::new();
+
+        // Missing link
+        desired.insert(
+            "missing".to_string(),
+            Link {
+                target: "/missing_target".to_string(),
+                link_name: "/missing".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        // Correct link
+        desired.insert(
+            "correct".to_string(),
+            Link {
+                target: "/correct_target".to_string(),
+                link_name: "/correct".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        // Incorrect link
+        desired.insert(
+            "incorrect".to_string(),
+            Link {
+                target: "/new_target".to_string(),
+                link_name: "/incorrect".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        let plan = StateManager::compute_plan(&desired, &fs);
+        let (creates, updates, removes, no_changes) = plan.summary();
+
+        assert_eq!(creates, 1, "Should have 1 create");
+        assert_eq!(updates, 1, "Should have 1 update");
+        assert_eq!(removes, 0, "Should have 0 removes");
+        assert_eq!(no_changes, 1, "Should have 1 no-change");
+    }
+
+    #[test]
+    fn test_is_synced_with_missing_links() {
+        let fs = MemoryFileSystem::new();
+        let mut desired = LinkMap::new();
+
+        desired.insert(
+            "link1".to_string(),
+            Link {
+                target: "/target".to_string(),
+                link_name: "/link".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        assert!(!StateManager::is_synced(&desired, &fs));
+    }
+
+    #[test]
+    fn test_is_synced_when_correct() {
+        let fs = MemoryFileSystem::new();
+
+        let target = std::path::PathBuf::from("/target");
+        let link = std::path::PathBuf::from("/link");
+        fs.add_symlink(link, target);
+
+        let mut desired = LinkMap::new();
+        desired.insert(
+            "link1".to_string(),
+            Link {
+                target: "/target".to_string(),
+                link_name: "/link".to_string(),
+                directory: false,
+                root: false,
+            },
+        );
+
+        assert!(StateManager::is_synced(&desired, &fs));
+    }
+
+    #[test]
+    fn test_validate_empty() {
+        let fs = MemoryFileSystem::new();
+        let desired = LinkMap::new();
+
+        let errors = StateManager::validate(&desired, &fs).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_plan_into_transaction() {
+        let mut plan = ExecutionPlan::new();
+
+        plan.add_change(Change::Create {
+            name: "link1".to_string(),
+            link: Link {
+                target: "/target1".to_string(),
+                link_name: "/link1".to_string(),
+                directory: false,
+                root: false,
+            },
+        });
+
+        let transaction = plan.into_transaction();
+        assert!(transaction.is_ok());
+
+        let tx = transaction.unwrap();
+        assert_eq!(tx.len(), 1);
+    }
+
+    #[test]
+    fn test_plan_with_no_changes_produces_empty_transaction() {
+        let mut plan = ExecutionPlan::new();
+
+        plan.add_change(Change::NoChange {
+            name: "link1".to_string(),
+            link: Link {
+                target: "/target1".to_string(),
+                link_name: "/link1".to_string(),
+                directory: false,
+                root: false,
+            },
+        });
+
+        let transaction = plan.into_transaction().unwrap();
+        assert_eq!(transaction.len(), 0, "NoChange should not create operations");
+    }
+
+    #[test]
+    fn test_execution_plan_default() {
+        let plan = ExecutionPlan::default();
+        assert!(plan.is_empty());
+    }
 }

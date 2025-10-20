@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// Abstraction over filesystem operations for testability
 pub trait FileSystem {
@@ -83,7 +84,7 @@ impl FileSystem for RealFileSystem {
 /// In-memory filesystem for testing
 #[derive(Debug, Default, Clone)]
 pub struct MemoryFileSystem {
-    files: HashMap<PathBuf, FileEntry>,
+    files: Arc<Mutex<HashMap<PathBuf, FileEntry>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,50 +97,76 @@ enum FileEntry {
 impl MemoryFileSystem {
     pub fn new() -> Self {
         Self {
-            files: HashMap::new(),
+            files: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Add a regular file to the filesystem
-    pub fn add_file(&mut self, path: PathBuf) {
-        self.files.insert(path, FileEntry::File);
+    pub fn add_file(&self, path: PathBuf) {
+        let mut files = self.files.lock().unwrap();
+        files.insert(path, FileEntry::File);
     }
 
     /// Add a directory to the filesystem
-    pub fn add_dir(&mut self, path: PathBuf) {
-        self.files.insert(path, FileEntry::Directory);
+    pub fn add_dir(&self, path: PathBuf) {
+        let mut files = self.files.lock().unwrap();
+        files.insert(path, FileEntry::Directory);
     }
 
     /// Add a symlink to the filesystem
-    pub fn add_symlink(&mut self, link: PathBuf, target: PathBuf) {
-        self.files.insert(link, FileEntry::Symlink(target));
+    pub fn add_symlink(&self, link: PathBuf, target: PathBuf) {
+        let mut files = self.files.lock().unwrap();
+        files.insert(link, FileEntry::Symlink(target));
     }
 
     /// Check if filesystem contains a path
     pub fn contains(&self, path: &Path) -> bool {
-        self.files.contains_key(path)
+        let files = self.files.lock().unwrap();
+        files.contains_key(path)
     }
 
     /// Get the target of a symlink (for testing)
     pub fn get_symlink_target(&self, link: &Path) -> Option<PathBuf> {
-        match self.files.get(link) {
+        let files = self.files.lock().unwrap();
+        match files.get(link) {
             Some(FileEntry::Symlink(target)) => Some(target.clone()),
             _ => None,
         }
+    }
+
+    /// Get number of entries (for testing)
+    pub fn len(&self) -> usize {
+        let files = self.files.lock().unwrap();
+        files.len()
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        let files = self.files.lock().unwrap();
+        files.is_empty()
+    }
+
+    /// Clear all entries
+    pub fn clear(&self) {
+        let mut files = self.files.lock().unwrap();
+        files.clear();
     }
 }
 
 impl FileSystem for MemoryFileSystem {
     fn exists(&self, path: &Path) -> bool {
-        self.files.contains_key(path)
+        let files = self.files.lock().unwrap();
+        files.contains_key(path)
     }
 
     fn is_symlink(&self, path: &Path) -> bool {
-        matches!(self.files.get(path), Some(FileEntry::Symlink(_)))
+        let files = self.files.lock().unwrap();
+        matches!(files.get(path), Some(FileEntry::Symlink(_)))
     }
 
     fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
-        match self.files.get(path) {
+        let files = self.files.lock().unwrap();
+        match files.get(path) {
             Some(FileEntry::Symlink(target)) => Ok(target.clone()),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -149,36 +176,167 @@ impl FileSystem for MemoryFileSystem {
     }
 
     fn symlink(&self, target: &Path, link: &Path) -> io::Result<()> {
-        if self.exists(link) {
+        let mut files = self.files.lock().unwrap();
+        if files.contains_key(link) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 "link already exists",
             ));
         }
-        // Note: In real implementation, we'd need interior mutability
-        // This is a simplified version for demonstration
+        files.insert(link.to_path_buf(), FileEntry::Symlink(target.to_path_buf()));
         Ok(())
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        if !self.exists(path) {
+        let mut files = self.files.lock().unwrap();
+        if !files.contains_key(path) {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "file not found",
             ));
         }
+        files.remove(path);
         Ok(())
     }
 
-    fn create_dir_all(&self, _path: &Path) -> io::Result<()> {
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        let mut files = self.files.lock().unwrap();
+        files.insert(path.to_path_buf(), FileEntry::Directory);
         Ok(())
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        matches!(self.files.get(path), Some(FileEntry::Directory))
+        let files = self.files.lock().unwrap();
+        matches!(files.get(path), Some(FileEntry::Directory))
     }
 
-    fn rename(&self, _from: &Path, _to: &Path) -> io::Result<()> {
-        Ok(())
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let mut files = self.files.lock().unwrap();
+        if let Some(entry) = files.remove(from) {
+            files.insert(to.to_path_buf(), entry);
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "source file not found",
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_fs_basic_operations() {
+        let fs = MemoryFileSystem::new();
+        assert!(fs.is_empty());
+
+        // Add a file
+        fs.add_file(PathBuf::from("/test.txt"));
+        assert!(fs.exists(&PathBuf::from("/test.txt")));
+        assert_eq!(fs.len(), 1);
+        assert!(!fs.is_symlink(&PathBuf::from("/test.txt")));
+    }
+
+    #[test]
+    fn test_memory_fs_symlink() {
+        let fs = MemoryFileSystem::new();
+
+        let target = PathBuf::from("/target");
+        let link = PathBuf::from("/link");
+
+        // Create symlink
+        fs.symlink(&target, &link).unwrap();
+
+        assert!(fs.exists(&link));
+        assert!(fs.is_symlink(&link));
+        assert_eq!(fs.read_link(&link).unwrap(), target);
+    }
+
+    #[test]
+    fn test_memory_fs_symlink_already_exists() {
+        let fs = MemoryFileSystem::new();
+
+        let target = PathBuf::from("/target");
+        let link = PathBuf::from("/link");
+
+        fs.symlink(&target, &link).unwrap();
+
+        // Try to create again
+        let result = fs.symlink(&target, &link);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn test_memory_fs_remove_file() {
+        let fs = MemoryFileSystem::new();
+
+        let link = PathBuf::from("/link");
+        fs.add_file(link.clone());
+
+        assert!(fs.exists(&link));
+
+        fs.remove_file(&link).unwrap();
+        assert!(!fs.exists(&link));
+    }
+
+    #[test]
+    fn test_memory_fs_remove_nonexistent() {
+        let fs = MemoryFileSystem::new();
+
+        let result = fs.remove_file(&PathBuf::from("/nonexistent"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_memory_fs_directory() {
+        let fs = MemoryFileSystem::new();
+
+        let dir = PathBuf::from("/dir");
+        fs.add_dir(dir.clone());
+
+        assert!(fs.exists(&dir));
+        assert!(fs.is_dir(&dir));
+        assert!(!fs.is_symlink(&dir));
+    }
+
+    #[test]
+    fn test_memory_fs_create_dir_all() {
+        let fs = MemoryFileSystem::new();
+
+        let dir = PathBuf::from("/parent/child");
+        fs.create_dir_all(&dir).unwrap();
+
+        assert!(fs.exists(&dir));
+        assert!(fs.is_dir(&dir));
+    }
+
+    #[test]
+    fn test_memory_fs_rename() {
+        let fs = MemoryFileSystem::new();
+
+        let from = PathBuf::from("/from");
+        let to = PathBuf::from("/to");
+
+        fs.add_file(from.clone());
+        assert!(fs.exists(&from));
+
+        fs.rename(&from, &to).unwrap();
+
+        assert!(!fs.exists(&from));
+        assert!(fs.exists(&to));
+    }
+
+    #[test]
+    fn test_memory_fs_rename_nonexistent() {
+        let fs = MemoryFileSystem::new();
+
+        let result = fs.rename(&PathBuf::from("/from"), &PathBuf::from("/to"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
     }
 }
