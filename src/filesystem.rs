@@ -168,10 +168,7 @@ impl FileSystem for MemoryFileSystem {
         let files = self.files.lock().unwrap();
         match files.get(path) {
             Some(FileEntry::Symlink(target)) => Ok(target.clone()),
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "not a symlink",
-            )),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "not a symlink")),
         }
     }
 
@@ -190,10 +187,7 @@ impl FileSystem for MemoryFileSystem {
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         let mut files = self.files.lock().unwrap();
         if !files.contains_key(path) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "file not found",
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotFound, "file not found"));
         }
         files.remove(path);
         Ok(())

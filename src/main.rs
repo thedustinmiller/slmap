@@ -25,7 +25,6 @@ struct Statuses<'a> {
     error: i32,
 }
 
-
 fn read_map(map_file: &mut File) -> HashMap<String, Link> {
     let mut file_string = String::new();
     map_file

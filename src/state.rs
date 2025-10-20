@@ -479,7 +479,11 @@ mod tests {
         });
 
         let transaction = plan.into_transaction().unwrap();
-        assert_eq!(transaction.len(), 0, "NoChange should not create operations");
+        assert_eq!(
+            transaction.len(),
+            0,
+            "NoChange should not create operations"
+        );
     }
 
     #[test]

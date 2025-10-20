@@ -82,7 +82,8 @@ impl Link {
         let target = self.resolved_target().unwrap();
         let link_name = self.resolved_link_name().unwrap();
 
-        fs::create_dir_all(link_name.parent().unwrap()).expect("Failed to create parent directories");
+        fs::create_dir_all(link_name.parent().unwrap())
+            .expect("Failed to create parent directories");
 
         unix::fs::symlink(target, link_name).expect("Failed to create symlink");
     }
